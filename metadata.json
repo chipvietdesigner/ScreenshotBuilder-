@@ -1,0 +1,5 @@
+{
+  "name": "VeryPay Screenshot Generator",
+  "description": "Interactive tool to generate App Store & Google Play screenshots in Light Mode, with image import and export capabilities.",
+  "requestFramePermissions": []
+}
