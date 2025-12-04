@@ -69,7 +69,7 @@ export default function App() {
 
   // --- GLOBAL CONTEXT STATE ---
   const [currentAppType, setCurrentAppType] = useState<AppType>(savedState?.currentAppType ?? 'customer');
-  const [currentTenantId, setCurrentTenantId] = useState<TenantId>(savedState?.currentTenantId ?? 'school');
+  const [currentTenantId, setCurrentTenantId] = useState<TenantId>(savedState?.currentTenantId ?? 'zamtel');
   
   // --- DATA STORE ---
   // Key = `${appType}:${tenantId}` -> Value = ScreenshotConfig[]

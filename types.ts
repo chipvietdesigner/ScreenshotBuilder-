@@ -10,10 +10,6 @@ export interface Transaction {
 }
 
 export type TenantId = 
-  | 'school' 
-  | 'transport' 
-  | 'university' 
-  | 'health'
   | 'zamtel'
   | 'aftel'
   | 'sct_mtn_bernin'
@@ -22,7 +18,11 @@ export type TenantId =
   | 'cashless_school_senegal'
   | 'sakkonet_retail_uganda'
   | 'spiro'
-  | 'verypay_cashless_schools';
+  | 'verypay_cashless_schools'
+  | 'school' 
+  | 'transport' 
+  | 'university' 
+  | 'health';
 
 export type AppType = 'customer' | 'merchant';
 
@@ -62,34 +62,7 @@ export interface ExportConfig {
 }
 
 export const TENANTS: Record<TenantId, Tenant> = {
-  school: {
-    id: 'school',
-    name: 'VeryPayMock1',
-    primaryColor: '#F38B1C', // Orange
-    secondaryColor: '#FFF7ED',
-    accentColor: '#C2410C',
-  },
-  transport: {
-    id: 'transport',
-    name: 'VeryPayMock2',
-    primaryColor: '#2563EB', // Blue
-    secondaryColor: '#EFF6FF',
-    accentColor: '#1E40AF',
-  },
-  university: {
-    id: 'university',
-    name: 'VeryPayMock3',
-    primaryColor: '#7C3AED', // Purple
-    secondaryColor: '#F5F3FF',
-    accentColor: '#5B21B6',
-  },
-  health: {
-    id: 'health',
-    name: 'VeryPayMock4',
-    primaryColor: '#059669', // Emerald
-    secondaryColor: '#ECFDF5',
-    accentColor: '#047857',
-  },
+  
   zamtel: {
     id: 'zamtel',
     name: 'Zamtel',
@@ -152,5 +125,33 @@ export const TENANTS: Record<TenantId, Tenant> = {
     primaryColor: '#7CB442',
     secondaryColor: '#F0FDF4',
     accentColor: '#166534',
+  },
+  school: {
+    id: 'school',
+    name: 'VeryPayMock1',
+    primaryColor: '#F38B1C', // Orange
+    secondaryColor: '#FFF7ED',
+    accentColor: '#C2410C',
+  },
+  transport: {
+    id: 'transport',
+    name: 'VeryPayMock2',
+    primaryColor: '#2563EB', // Blue
+    secondaryColor: '#EFF6FF',
+    accentColor: '#1E40AF',
+  },
+  university: {
+    id: 'university',
+    name: 'VeryPayMock3',
+    primaryColor: '#7C3AED', // Purple
+    secondaryColor: '#F5F3FF',
+    accentColor: '#5B21B6',
+  },
+  health: {
+    id: 'health',
+    name: 'VeryPayMock4',
+    primaryColor: '#059669', // Emerald
+    secondaryColor: '#ECFDF5',
+    accentColor: '#047857',
   }
 };
