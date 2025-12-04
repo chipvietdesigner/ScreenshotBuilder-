@@ -103,14 +103,25 @@ export default function App() {
         const cloudData = await loadContextFromCloud(currentContextKey);
         
         if (isMounted) {
-          if (cloudData && cloudData.length > 0) {
+          if (cloudData && cloudData.screens && cloudData.screens.length > 0) {
             // Found data in cloud -> Overwrite local context data
             setDataStore(prev => ({
               ...prev,
-              [currentContextKey]: cloudData
+              [currentContextKey]: cloudData.screens
             }));
-            // Reset active index to 0 to avoid out of bounds if list length changed
-            setActiveScreenIndex(0);
+            
+            // Restore other persisted properties
+            if (cloudData.exportConfig) {
+              setExportConfig(cloudData.exportConfig);
+            }
+            
+            // Restore active index or reset if out of bounds
+            if (typeof cloudData.activeScreenIndex === 'number' && cloudData.activeScreenIndex < cloudData.screens.length) {
+              setActiveScreenIndex(cloudData.activeScreenIndex);
+            } else {
+              setActiveScreenIndex(0);
+            }
+
           } else {
             // No cloud data -> Check if we have local data, if not, init defaults
             setDataStore(prev => {
@@ -120,7 +131,6 @@ export default function App() {
               // Init defaults
               const initialScreens: ScreenshotConfig[] = BASE_TEMPLATES.map(t => ({
                 uniqueId: crypto.randomUUID(),
-                templateId: t.id,
                 label: t.label,
                 title: t.defaultTitle,
                 subtitle: t.defaultSubtitle,
@@ -136,12 +146,11 @@ export default function App() {
         }
       } catch (err) {
         console.error("Failed to sync with cloud", err);
-        // Fallback to defaults if totally empty
+        // Fallback to defaults if sync fails
         setDataStore(prev => {
            if (!prev[currentContextKey]) {
               const initialScreens: ScreenshotConfig[] = BASE_TEMPLATES.map(t => ({
                 uniqueId: crypto.randomUUID(),
-                templateId: t.id,
                 label: t.label,
                 title: t.defaultTitle,
                 subtitle: t.defaultSubtitle,
@@ -188,7 +197,13 @@ export default function App() {
     setIsSavingCloud(true);
     setCloudMessage(null);
     try {
-      await saveContextToCloud(currentContextKey, currentScreens);
+      await saveContextToCloud(currentContextKey, {
+        appType: currentAppType,
+        tenantId: currentTenantId,
+        screens: currentScreens,
+        exportConfig: exportConfig,
+        activeScreenIndex: activeScreenIndex
+      });
       setCloudMessage("Saved to cloud!");
       setTimeout(() => setCloudMessage(null), 3000);
     } catch (error) {

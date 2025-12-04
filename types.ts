@@ -47,8 +47,7 @@ export interface TemplateDef {
 
 // Mutable state for a single screenshot
 export interface ScreenshotConfig {
-  uniqueId: string; // UUID
-  templateId?: number; // Refers to the hardcoded template ID (1-8) if applicable
+  uniqueId: string; // UUID// Refers to the hardcoded template ID (1-8) if applicable
   label: string;
   title: string;
   subtitle: string;

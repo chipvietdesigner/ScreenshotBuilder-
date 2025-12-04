@@ -1,49 +1,39 @@
 import { initializeApp } from 'firebase/app';
-import { getFirestore, doc, setDoc, getDoc, Firestore } from 'firebase/firestore';
-import { ScreenshotConfig } from '../types';
+import { getFirestore, doc, setDoc, getDoc } from 'firebase/firestore';
+import { ScreenshotConfig, ExportConfig } from '../types';
 
-// NOTE: Replace these values with your own Firebase project configuration
-// You can get these from the Firebase Console -> Project Settings -> General -> Your Apps
 const firebaseConfig = {
-  apiKey: "YOUR_API_KEY",
-  authDomain: "your-project-id.firebaseapp.com",
-  projectId: "your-project-id",
-  storageBucket: "your-project-id.appspot.com",
-  messagingSenderId: "00000000000",
-  appId: "1:00000000000:web:00000000000000"
+    apiKey: "AIzaSyB7NvZ2vICtHxGoC6oxC5x_2Qd2nyFHD0U",
+    authDomain: "screenshot-builder-658c9.firebaseapp.com",
+    projectId: "screenshot-builder-658c9",
+    storageBucket: "screenshot-builder-658c9.firebasestorage.app",
+    messagingSenderId: "895853225442",
+    appId: "1:895853225442:web:2a09db12a1cb51edad85bb"
 };
 
-let db: Firestore | null = null;
-let isConfigured = false;
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
 
-try {
-  // Simple check to see if config is still default placeholder
-  if (firebaseConfig.apiKey !== "YOUR_API_KEY") {
-    const app = initializeApp(firebaseConfig);
-    db = getFirestore(app);
-    isConfigured = true;
-  } else {
-    console.warn("Firebase config is missing. Cloud features will be simulated or disabled.");
-  }
-} catch (error) {
-  console.error("Error initializing Firebase:", error);
+const COLLECTION_NAME = "screenshotBuilderConfigs";
+
+export interface CloudContextData {
+  appType: string;
+  tenantId: string;
+  screens: ScreenshotConfig[];
+  exportConfig: ExportConfig;
+  activeScreenIndex: number;
+  updatedAt: string;
 }
 
-const COLLECTION_NAME = "screenshotsBuilderData";
-
-export const saveContextToCloud = async (contextKey: string, screens: ScreenshotConfig[]): Promise<boolean> => {
-  if (!db || !isConfigured) {
-    // Simulate a network request for demo purposes if no config
-    return new Promise((resolve) => {
-        console.log("Simulating Cloud Save...", { contextKey, screens });
-        setTimeout(() => resolve(true), 1000);
-    });
-  }
-
+export const saveContextToCloud = async (
+  contextKey: string, 
+  data: Omit<CloudContextData, 'updatedAt'>
+): Promise<boolean> => {
   try {
     await setDoc(doc(db, COLLECTION_NAME, contextKey), {
-      updatedAt: new Date().toISOString(),
-      screens
+      ...data,
+      updatedAt: new Date().toISOString()
     });
     return true;
   } catch (error) {
@@ -52,21 +42,13 @@ export const saveContextToCloud = async (contextKey: string, screens: Screenshot
   }
 };
 
-export const loadContextFromCloud = async (contextKey: string): Promise<ScreenshotConfig[] | null> => {
-  if (!db || !isConfigured) {
-     // Simulate network delay
-     return new Promise((resolve) => {
-        setTimeout(() => resolve(null), 800);
-     });
-  }
-
+export const loadContextFromCloud = async (contextKey: string): Promise<CloudContextData | null> => {
   try {
     const docRef = doc(db, COLLECTION_NAME, contextKey);
     const docSnap = await getDoc(docRef);
 
     if (docSnap.exists()) {
-      const data = docSnap.data();
-      return data.screens as ScreenshotConfig[];
+      return docSnap.data() as CloudContextData;
     }
     return null;
   } catch (error) {
