@@ -4,7 +4,7 @@ import {
   Download, Upload, Monitor, Smartphone, Layout, ChevronRight, 
   Image as ImageIcon, Camera, Building2, Bus, GraduationCap, HeartPulse,
   AlignCenter, AlignLeft, AlignRight, Maximize, Trash2, Plus, 
-  Type, Settings2, AppWindow, Save
+  Type, Settings2, AppWindow, Save, Cloud, CloudUpload, Loader2
 } from 'lucide-react';
 import { ScreenshotWrapper } from './components/ScreenshotWrapper';
 import { Screen1_PaymentToken as S1 } from './components/screens/Screen1_PaymentToken';
@@ -18,6 +18,7 @@ import { Screen8_Spending as S8 } from './components/screens/Screen8_Spending';
 
 import { TENANTS, TenantId, Tenant, LayoutId, ScreenshotConfig, TemplateDef, AppType, ExportConfig } from './types';
 import { loadAppState, saveAppState } from './storage/stateStorage';
+import { saveContextToCloud, loadContextFromCloud } from './storage/firebase';
 
 // --- INITIAL TEMPLATES DEFINITION ---
 const BASE_TEMPLATES: TemplateDef[] = [
@@ -77,7 +78,10 @@ export default function App() {
   // --- UI STATE ---
   const [activeScreenIndex, setActiveScreenIndex] = useState(savedState?.activeScreenIndex ?? 0); 
   const [isExporting, setIsExporting] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
+  const [isSavingLocal, setIsSavingLocal] = useState(false);
+  const [isSavingCloud, setIsSavingCloud] = useState(false);
+  const [isLoadingCloud, setIsLoadingCloud] = useState(false);
+  const [cloudMessage, setCloudMessage] = useState<string | null>(null);
   
   // Export Configuration
   const [exportConfig, setExportConfig] = useState<ExportConfig>(savedState?.exportConfig ?? {
@@ -89,28 +93,75 @@ export default function App() {
   const currentContextKey = `${currentAppType}:${currentTenantId}`;
   const currentTenant = TENANTS[currentTenantId];
 
-  // Initialize Data if Missing for Context
-  // This logic works with persisted state: if the context exists in loaded data, it skips.
-  // If it's a new context not in DB, it fills it.
+  // --- CLOUD SYNC LOGIC ---
   useEffect(() => {
-    if (!dataStore[currentContextKey]) {
-      // Create initial screenshots from BASE_TEMPLATES
-      const initialScreens: ScreenshotConfig[] = BASE_TEMPLATES.map(t => ({
-        uniqueId: crypto.randomUUID(),
-        templateId: t.id,
-        label: t.label,
-        title: t.defaultTitle,
-        subtitle: t.defaultSubtitle,
-        layout: 'classic',
-        customImage: null
-      }));
-      
-      setDataStore(prev => ({
-        ...prev,
-        [currentContextKey]: initialScreens
-      }));
-    }
-  }, [currentContextKey, dataStore]);
+    let isMounted = true;
+
+    const syncData = async () => {
+      setIsLoadingCloud(true);
+      try {
+        const cloudData = await loadContextFromCloud(currentContextKey);
+        
+        if (isMounted) {
+          if (cloudData && cloudData.length > 0) {
+            // Found data in cloud -> Overwrite local context data
+            setDataStore(prev => ({
+              ...prev,
+              [currentContextKey]: cloudData
+            }));
+            // Reset active index to 0 to avoid out of bounds if list length changed
+            setActiveScreenIndex(0);
+          } else {
+            // No cloud data -> Check if we have local data, if not, init defaults
+            setDataStore(prev => {
+              if (prev[currentContextKey] && prev[currentContextKey].length > 0) {
+                return prev; // Keep existing local data
+              }
+              // Init defaults
+              const initialScreens: ScreenshotConfig[] = BASE_TEMPLATES.map(t => ({
+                uniqueId: crypto.randomUUID(),
+                templateId: t.id,
+                label: t.label,
+                title: t.defaultTitle,
+                subtitle: t.defaultSubtitle,
+                layout: 'classic',
+                customImage: null
+              }));
+              return {
+                ...prev,
+                [currentContextKey]: initialScreens
+              };
+            });
+          }
+        }
+      } catch (err) {
+        console.error("Failed to sync with cloud", err);
+        // Fallback to defaults if totally empty
+        setDataStore(prev => {
+           if (!prev[currentContextKey]) {
+              const initialScreens: ScreenshotConfig[] = BASE_TEMPLATES.map(t => ({
+                uniqueId: crypto.randomUUID(),
+                templateId: t.id,
+                label: t.label,
+                title: t.defaultTitle,
+                subtitle: t.defaultSubtitle,
+                layout: 'classic',
+                customImage: null
+              }));
+              return { ...prev, [currentContextKey]: initialScreens };
+           }
+           return prev;
+        });
+      } finally {
+        if (isMounted) setIsLoadingCloud(false);
+      }
+    };
+
+    syncData();
+
+    return () => { isMounted = false; };
+  }, [currentContextKey]);
+
 
   // Derived: Current List of Screens
   const currentScreens = dataStore[currentContextKey] || [];
@@ -118,7 +169,7 @@ export default function App() {
 
   // --- ACTIONS ---
 
-  const handleSaveState = () => {
+  const handleSaveLocal = () => {
     saveAppState({
       currentAppType,
       currentTenantId,
@@ -127,8 +178,25 @@ export default function App() {
       exportConfig
     });
     
-    setIsSaving(true);
-    setTimeout(() => setIsSaving(false), 2000);
+    setIsSavingLocal(true);
+    setTimeout(() => setIsSavingLocal(false), 2000);
+  };
+
+  const handleSaveToCloud = async () => {
+    if (!currentScreens.length) return;
+    
+    setIsSavingCloud(true);
+    setCloudMessage(null);
+    try {
+      await saveContextToCloud(currentContextKey, currentScreens);
+      setCloudMessage("Saved to cloud!");
+      setTimeout(() => setCloudMessage(null), 3000);
+    } catch (error) {
+      console.error(error);
+      setCloudMessage("Failed to save.");
+    } finally {
+      setIsSavingCloud(false);
+    }
   };
 
   const handleUpdateActiveScreen = (updates: Partial<ScreenshotConfig>) => {
@@ -196,9 +264,9 @@ export default function App() {
   // Determine Dimensions for Logical Rendering
   const exportDimensions = (() => {
       if (exportConfig.platform === 'ios' && exportConfig.device === '5.5') {
-          return { w: 414, h: 736 }; // Logical size for 16:9 5.5" iPhone (Physical is 1242x2208, Scale 3x)
+          return { w: 414, h: 736 }; // Logical size for 16:9 5.5" iPhone
       }
-      return { w: 414, h: 896 }; // Logical size for 19.5:9 6.5" iPhone (Physical is 1242x2688, Scale 3x)
+      return { w: 414, h: 896 }; // Logical size for 19.5:9 6.5" iPhone
   })();
 
   const handleExport = async () => {
@@ -245,7 +313,17 @@ export default function App() {
   };
 
   // Render
-  if (!activeScreen) return <div className="h-screen flex items-center justify-center">Loading...</div>;
+  if (isLoadingCloud && !currentScreens.length) {
+     return (
+       <div className="h-screen flex flex-col items-center justify-center bg-gray-50 text-gray-500 gap-4">
+         <Loader2 className="animate-spin text-gray-400" size={48} />
+         <p className="text-sm font-bold">Syncing with cloud...</p>
+       </div>
+     );
+  }
+
+  // Fallback for empty state while loading first time
+  if (!activeScreen && !isLoadingCloud) return <div className="h-screen flex items-center justify-center">Initializing...</div>;
 
   return (
     <>
@@ -267,20 +345,22 @@ export default function App() {
         }}
       >
         <div ref={exportRef}>
-           <ScreenshotWrapper
-              title={activeScreen.title}
-              subtitle={activeScreen.subtitle}
-              tenant={currentTenant}
-              layout={activeScreen.layout}
-              customImage={activeScreen.customImage}
-              width={exportDimensions.w}
-              height={exportDimensions.h}
-              scale={1} // Exact logical scale
-              appType={currentAppType}
-              platform={exportConfig.platform}
-          >
-              {getComponentById(activeScreen.templateId)}
-          </ScreenshotWrapper>
+           {activeScreen && (
+            <ScreenshotWrapper
+                title={activeScreen.title}
+                subtitle={activeScreen.subtitle}
+                tenant={currentTenant}
+                layout={activeScreen.layout}
+                customImage={activeScreen.customImage}
+                width={exportDimensions.w}
+                height={exportDimensions.h}
+                scale={1} // Exact logical scale
+                appType={currentAppType}
+                platform={exportConfig.platform}
+            >
+                {getComponentById(activeScreen.templateId)}
+            </ScreenshotWrapper>
+           )}
         </div>
       </div>
 
@@ -343,15 +423,15 @@ export default function App() {
 
           <div className="flex items-center gap-4">
               <button 
-                onClick={handleSaveState}
+                onClick={handleSaveLocal}
                 className={`flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-bold transition-all ${
-                  isSaving 
+                  isSavingLocal
                   ? 'bg-green-100 text-green-700 border border-green-200' 
                   : 'bg-gray-100 text-gray-700 border border-gray-200 hover:bg-gray-200'
                 }`}
               >
                 <Save size={16} />
-                {isSaving ? 'Saved!' : 'Save'}
+                {isSavingLocal ? 'Saved Locally!' : 'Local Save'}
               </button>
               
               <span className="px-3 py-1 bg-gray-100 text-gray-500 text-xs font-bold rounded-full border border-gray-200">
@@ -367,9 +447,12 @@ export default function App() {
           {/* COL 1: SCREEN LIST */}
           <aside className="w-[280px] bg-white border-r border-gray-200 flex flex-col overflow-y-auto">
               <div className="p-4 border-b border-gray-100 bg-gray-50/50 sticky top-0 backdrop-blur-sm z-10 flex justify-between items-center">
-                  <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest flex items-center gap-2">
-                     Screens ({currentScreens.length})
-                  </h3>
+                  <div className="flex flex-col">
+                    <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest flex items-center gap-2">
+                      Screens ({currentScreens.length})
+                    </h3>
+                    {isLoadingCloud && <span className="text-[10px] text-orange-500 font-medium">Syncing...</span>}
+                  </div>
                   <button 
                     onClick={handleAddScreenshot}
                     className="p-1 hover:bg-gray-200 rounded text-gray-500 hover:text-gray-700 transition-colors"
@@ -433,41 +516,45 @@ export default function App() {
               />
               
               {/* The Render Container - SCALED FOR PREVIEW ONLY */}
-              <div className="relative z-10 shadow-2xl rounded-sm border-[4px] border-white bg-white transition-all duration-300 ease-in-out max-h-full max-w-full flex items-center justify-center overflow-hidden"
-                   style={{ transform: 'scale(0.8)', transformOrigin: 'center' }}
-              >
-                   {/* This one is NOT referenced by exportRef, so we can scale it freely */}
-                   <div>
-                      <ScreenshotWrapper
-                          title={activeScreen.title}
-                          subtitle={activeScreen.subtitle}
-                          tenant={currentTenant}
-                          layout={activeScreen.layout}
-                          customImage={activeScreen.customImage}
-                          width={exportDimensions.w}
-                          height={exportDimensions.h}
-                          scale={1}
-                          appType={currentAppType}
-                          platform={exportConfig.platform}
-                      >
-                          {getComponentById(activeScreen.templateId)}
-                      </ScreenshotWrapper>
-                   </div>
-              </div>
+              {activeScreen && (
+                <div className="relative z-10 shadow-2xl rounded-sm border-[4px] border-white bg-white transition-all duration-300 ease-in-out max-h-full max-w-full flex items-center justify-center overflow-hidden"
+                    style={{ transform: 'scale(0.8)', transformOrigin: 'center' }}
+                >
+                    {/* This one is NOT referenced by exportRef, so we can scale it freely */}
+                    <div>
+                        <ScreenshotWrapper
+                            title={activeScreen.title}
+                            subtitle={activeScreen.subtitle}
+                            tenant={currentTenant}
+                            layout={activeScreen.layout}
+                            customImage={activeScreen.customImage}
+                            width={exportDimensions.w}
+                            height={exportDimensions.h}
+                            scale={1}
+                            appType={currentAppType}
+                            platform={exportConfig.platform}
+                        >
+                            {getComponentById(activeScreen.templateId)}
+                        </ScreenshotWrapper>
+                    </div>
+                </div>
+              )}
 
-              <div className="absolute bottom-6 flex gap-2">
-                  <div className="px-4 py-2 bg-white rounded-full shadow-sm text-xs font-bold text-gray-400 flex items-center gap-2 border border-gray-200">
-                      <Monitor size={14} /> {activeScreen.layout}
-                  </div>
-                   {activeScreen.customImage && (
-                      <div className="px-4 py-2 bg-green-50 text-green-600 rounded-full shadow-sm text-xs font-bold flex items-center gap-2 border border-green-100">
-                          <Camera size={14} /> Active image
-                      </div>
-                  )}
-                   <div className="px-4 py-2 bg-blue-50 text-blue-600 rounded-full shadow-sm text-xs font-bold flex items-center gap-2 border border-blue-100">
-                      Export: {exportConfig.device}" ({exportDimensions.w * 3}x{exportDimensions.h * 3}px)
-                  </div>
-              </div>
+              {activeScreen && (
+                <div className="absolute bottom-6 flex gap-2">
+                    <div className="px-4 py-2 bg-white rounded-full shadow-sm text-xs font-bold text-gray-400 flex items-center gap-2 border border-gray-200">
+                        <Monitor size={14} /> {activeScreen.layout}
+                    </div>
+                    {activeScreen.customImage && (
+                        <div className="px-4 py-2 bg-green-50 text-green-600 rounded-full shadow-sm text-xs font-bold flex items-center gap-2 border border-green-100">
+                            <Camera size={14} /> Active image
+                        </div>
+                    )}
+                    <div className="px-4 py-2 bg-blue-50 text-blue-600 rounded-full shadow-sm text-xs font-bold flex items-center gap-2 border border-blue-100">
+                        Export: {exportConfig.device}" ({exportDimensions.w * 3}x{exportDimensions.h * 3}px)
+                    </div>
+                </div>
+              )}
           </main>
 
 
@@ -484,6 +571,7 @@ export default function App() {
                   </p>
               </div>
 
+              {activeScreen ? (
               <div className="flex-1 overflow-y-auto p-6 space-y-8">
                   
                   {/* 1. Text Editor */}
@@ -565,11 +653,14 @@ export default function App() {
                       </div>
                   </div>
               </div>
+              ) : (
+                <div className="flex-1 flex items-center justify-center text-gray-400 text-sm">Select a screen</div>
+              )}
 
               {/* 4. Export Footer */}
               <div className="p-6 bg-gray-50 border-t border-gray-200">
                   <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-                      <Download size={14} /> Export
+                      <Download size={14} /> Export & Cloud
                   </label>
                   
                   {/* Export Settings */}
@@ -609,11 +700,27 @@ export default function App() {
                   <button 
                       onClick={handleExport}
                       disabled={isExporting}
-                      className="w-full py-3 px-4 rounded-xl font-bold text-white text-sm shadow-md hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
+                      className="w-full mb-3 py-3 px-4 rounded-xl font-bold text-white text-sm shadow-md hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
                       style={{ backgroundColor: currentTenant.primaryColor }}
                   >
                       {isExporting ? 'Generating...' : 'Download Screenshot'}
                   </button>
+
+                  <button 
+                      onClick={handleSaveToCloud}
+                      disabled={isSavingCloud}
+                      className="w-full py-2 px-4 rounded-xl font-bold text-sm bg-gray-800 text-white shadow-sm hover:bg-gray-900 transition-all flex items-center justify-center gap-2"
+                      title="Save current project to Cloud"
+                  >
+                      {isSavingCloud ? <Loader2 className="animate-spin" size={16} /> : <CloudUpload size={16} />}
+                      {isSavingCloud ? 'Saving...' : 'Save to Cloud'}
+                  </button>
+                  {cloudMessage && (
+                    <div className="mt-2 text-center text-xs font-bold text-green-600 animate-pulse">
+                      {cloudMessage}
+                    </div>
+                  )}
+
                   <p className="text-[10px] text-center text-gray-400 mt-2 font-medium">
                       {exportDimensions.w * 3} x {exportDimensions.h * 3} pixels
                   </p>
